@@ -1,10 +1,11 @@
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from agno.utils.common import AUDIO_MIME_TYPES, FILE_MIME_TYPES, IMAGE_MIME_TYPES, VIDEO_MIME_TYPES
 from agno.utils.log import log_error
 
 
@@ -51,6 +52,10 @@ class Image(BaseModel):
                 data["id"] = str(uuid4())
 
         return data
+
+    @classmethod
+    def valid_mime_types(cls) -> frozenset[str]:
+        return IMAGE_MIME_TYPES
 
     def get_content_bytes(self) -> Optional[bytes]:
         """Get image content as raw bytes, loading from URL/file if needed"""
@@ -167,6 +172,10 @@ class Audio(BaseModel):
                 data["id"] = str(uuid4())
 
         return data
+
+    @classmethod
+    def valid_mime_types(cls) -> frozenset[str]:
+        return AUDIO_MIME_TYPES
 
     def get_content_bytes(self) -> Optional[bytes]:
         """Get audio content as raw bytes"""
@@ -300,6 +309,10 @@ class Video(BaseModel):
 
         return data
 
+    @classmethod
+    def valid_mime_types(cls) -> frozenset[str]:
+        return VIDEO_MIME_TYPES
+
     def get_content_bytes(self) -> Optional[bytes]:
         """Get video content as raw bytes"""
         if self.content:
@@ -345,7 +358,7 @@ class Video(BaseModel):
         format: Optional[str] = None,
         **kwargs,
     ) -> "Video":
-        """Create Image from base64 content"""
+        """Create Video from base64 content"""
         import base64
 
         try:
@@ -379,18 +392,18 @@ class Video(BaseModel):
 
 
 class File(BaseModel):
+    # Core content fields (at least one required)
     id: Optional[str] = None
     url: Optional[str] = None
     filepath: Optional[Union[Path, str]] = None
-    # Raw bytes content of a file
-    content: Optional[Any] = None
-    mime_type: Optional[str] = None
+    content: Optional[Any] = None  # Raw bytes content of a file
+    external: Optional[Any] = None  # External file object (e.g. GeminiFile)
 
+    # Metadata fields
+    mime_type: Optional[str] = None
     file_type: Optional[str] = None
     filename: Optional[str] = None
     size: Optional[int] = None
-    # External file object (e.g. GeminiFile, must be a valid object as expected by the model you are using)
-    external: Optional[Any] = None
     format: Optional[str] = None  # E.g. `pdf`, `txt`, `csv`, `xml`, etc.
     name: Optional[str] = None  # Name of the file, mandatory for AWS Bedrock document input
     # Anthropic-only: per-file citation preference. Ignored by other providers.
@@ -415,28 +428,17 @@ class File(BaseModel):
     @classmethod
     def validate_mime_type(cls, v):
         """Validate that the mime_type is one of the allowed types."""
-        if v is not None and v not in cls.valid_mime_types():
-            raise ValueError(f"Invalid MIME type: {v}. Must be one of: {cls.valid_mime_types()}")
+        if v is not None:
+            # Strip charset suffixes (e.g., text/csv; charset=UTF-8 -> text/csv)
+            v_normalized = v.split(";")[0].strip().lower()
+            if v_normalized not in cls.valid_mime_types():
+                raise ValueError(f"Invalid MIME type: '{v_normalized}'")
+            return v_normalized
         return v
 
     @classmethod
-    def valid_mime_types(cls) -> List[str]:
-        return [
-            "application/pdf",
-            "application/json",
-            "application/x-javascript",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "text/javascript",
-            "application/x-python",
-            "text/x-python",
-            "text/plain",
-            "text/html",
-            "text/css",
-            "text/markdown",
-            "text/csv",
-            "text/xml",
-            "text/rtf",
-        ]
+    def valid_mime_types(cls) -> frozenset[str]:
+        return FILE_MIME_TYPES
 
     @classmethod
     def from_base64(
